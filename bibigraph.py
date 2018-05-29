@@ -89,7 +89,6 @@ class Article(object):
         self.nbrCitation = int( re.findall('cited By ([0-9]+)', entry['note'])[0] )
        
         self.affiliation = entry['affiliation'].split(';') if 'affiliation' in entry else []
-        
 
     def __str__(self):
         text = ''
