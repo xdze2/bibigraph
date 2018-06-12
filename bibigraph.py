@@ -102,3 +102,4 @@ class Article(object):
         text += self.title[:30] + '... (%i) '%self.year 
         text += self.journal
         return text
+    
