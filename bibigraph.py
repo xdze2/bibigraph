@@ -13,6 +13,10 @@ def appendToDico( dico, key, value ):
         
 class Bibliography(object):
     ''' It's the library, including all the articles
+    
+        biblio = Bibliography()
+        
+        biblio.authors   is a dictionary { author:[articles keys, toto2012, ...]} 
     '''
     
     def __init__(self):    
