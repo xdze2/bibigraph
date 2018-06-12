@@ -79,7 +79,7 @@ class Article(object):
         
         self.year = int( entry['year'] )
         
-        authorlist = entry['author'].split(' and ')
+        authorlist = entry['author'].split(' and ') if 'author' in entry else ''
         self.authors = [a.strip() for a in authorlist]
         
         self.title = entry['title']
@@ -87,7 +87,7 @@ class Article(object):
         self.journal = entry['journal']
         self.key = entry['ID']
         self.nbrCitation = int( re.findall('cited By ([0-9]+)', entry['note'])[0] )
-       
+        
         self.affiliation = entry['affiliation'].split(';') if 'affiliation' in entry else []
 
     def __str__(self):
