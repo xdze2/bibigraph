@@ -12,6 +12,7 @@ networkx = "*"
 bibtexparser = "*"
 jupyterlab = "*"
 beakerx = "*"
+matplotlib = "*"
 
 [requires]
 python_version = "3.5"
