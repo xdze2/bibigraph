@@ -13,6 +13,7 @@ bibtexparser = "*"
 jupyterlab = "*"
 beakerx = "*"
 matplotlib = "*"
+requests = "*"
 
 [requires]
 python_version = "3.5"
