@@ -30,8 +30,7 @@ def requestDoi(doi):
         response = requests.get(url+doi, params=params)
         
         if not response.ok:
-            print('query error')
-            return None
+            raise NameError('query error: %s' % response.url )
         else:
             response = response.json()
             message = response['message']
@@ -105,7 +104,7 @@ def getOneRandomDoi():
 # https://graphviz.readthedocs.io/en/stable/
 # https://graphviz.gitlab.io/_pages/doc/info/attrs.html
 from graphviz import Digraph
-from IPython.display import Image, display, SVG
+
 
 from collections import Counter
 
