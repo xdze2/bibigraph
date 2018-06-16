@@ -1,5 +1,6 @@
 
 import requests
+import urllib.parse
 import pickle
 import time
 
@@ -27,10 +28,13 @@ def requestDoi(doi):
         url = 'https://api.crossref.org/works/'
         time.sleep(1)
         params = { 'mailto':'xdze2.me@gmail.com'}
-        response = requests.get(url+doi, params=params)
+        parseddoi = urllib.parse.quote_plus( doi )
+        response = requests.get(url+parseddoi, params=params)
         
         if not response.ok:
-            raise NameError('query error: %s' % response.url )
+            print('query error: ', doi)
+            #raise NameError('query error: %s' % response.url )
+            return {}
         else:
             response = response.json()
             message = response['message']
@@ -223,10 +227,13 @@ def buildlabel(doi):
     """ Gives the label to show on the graph
     """
     info = requestDoi( doi )
-    year = info['issued']['date-parts'][0][0]
-    familyname = [ auth['family'] for auth in info['author'] if auth['sequence']=='first'][0]
+    if info:
+        year = info['issued']['date-parts'][0][0]
+        familyname = [ auth['family'] for auth in info['author'] if auth['sequence']=='first'][0]
 
-    key = familyname+str(year)
+        key = familyname+str(year)
+    else:
+        key = str( hash(doi) )[:5]
     return key
 
 def parsedoi(doi):
