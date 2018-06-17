@@ -16,7 +16,6 @@ except:
 print( len(requesteddoi), 'articles loaded from cache' )
 
 
-
 def requestDoi(doi):
     """ Return the data for a given DOI
         - look first in the dictionary requesteddoi
@@ -74,9 +73,31 @@ def printInfo(doi):
     print( "[{DOI}] {title}".format( DOI=message['DOI'], title=title ) )
     print(  authors, '-', message['container-title'][0], '-', year )
     print( 'nbr de refs: ', len(message.get('reference', []) ), '- with doi:', len(getRefList(doi)) )
+    
+    
+# -- graph plot --
 
+def buildlabel(doi):
+    """ Gives the label to show on the graph
+    """
+    info = requestDoi( doi )
+    if info:
+        year = info['issued']['date-parts'][0][0]
+        familyname = [ auth['family'] for auth in info['author'] if auth['sequence']=='first'][0]
+
+        key = familyname+str(year)
+    else:
+        key = str( hash(doi) )[:5]
+    return key
+
+def parsedoi(doi):
+    # bug graphviz
+    doi = doi.replace(':', '')
+    return doi
+ 
     
-    
+# -- random doi --
+
 def getRandomDOI( N=10 ):
     """ Obtain a random sampling from crossref
         of size N doi
@@ -221,24 +242,6 @@ class Referencesgraph():
             print('')
             
             
-# -- graph plot --
 
-def buildlabel(doi):
-    """ Gives the label to show on the graph
-    """
-    info = requestDoi( doi )
-    if info:
-        year = info['issued']['date-parts'][0][0]
-        familyname = [ auth['family'] for auth in info['author'] if auth['sequence']=='first'][0]
-
-        key = familyname+str(year)
-    else:
-        key = str( hash(doi) )[:5]
-    return key
-
-def parsedoi(doi):
-    # bug graphviz
-    doi = doi.replace(':', '')
-    return doi
 
 
