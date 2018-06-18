@@ -42,6 +42,7 @@ class MetaDataStore(dict):
         """ Perform the query on Crossref if missing
             update the cache and save to the pickle file
         """
+        print( 'retrieving metadata for {} from Crossref...'.format(doi), end='\r')
         
         url = 'https://api.crossref.org/works/'
         params = { 'mailto':self.mailadress }
@@ -50,11 +51,11 @@ class MetaDataStore(dict):
         response = requests.get(parsed_url, params=params)
         
         if not response.ok:
-            print('`%s` not found. Empty metadata created. ' % doi, end='\r')
+            print('`%s` not found. Empty metadata created. ' % doi, end='\n')
             #raise NameError('query error: %s' % response.url )
             metadata = {'DOI': doi}
         else:
-            print( '{} metadata retrieved from Crossref in {:3f} s.'.format(doi, response.elapsed.total_seconds()), end='\r' )
+            print( 'metadata for {} retrieved from Crossref in {:3f} s.'.format(doi, response.elapsed.total_seconds()), end='\n' )
             response = response.json()
             metadata = response['message']
             
@@ -99,7 +100,7 @@ class MetaDataStore(dict):
         lastgennodes = [ doi for doi, node in graph.items() if node['gen']==lastgen ]
         
         for i, doi in enumerate( lastgennodes ):
-            print('{}/{} fetch'.format( i, len(lastgennodes), doi ), end='\r')
+            print('{:3d}/{}: '.format( i, len(lastgennodes), doi ), end='')
             metadata = self.get( doi )
             doi_list = metadata.refs_doi()
             
@@ -111,9 +112,12 @@ class MetaDataStore(dict):
                 else:
                     graph[ref_doi]['citedBy'].append( doi )
                 
-        print('- done -' + str(len(graph)) + ' '*10 )
+        print('- done -' + ' '*12 )
+        print( '{} nodes in the graph. The last generation number is {}.'.format(len(graph), graph.last_gen()) )
 
 
+        
+        
 class MetaData(dict):
     """ Class based on a dict representing the metadata
     """
@@ -264,7 +268,7 @@ class ReferenceGraph(dict):
 
 from graphviz import Digraph
 
-def built_graphviz( nodes, links, getlabel, getcolor ):
+def built_graphviz( nodes, links, getlabel, getcolor, secondary_links=[] ):
     """ Use Graphviz to draw the graph
         return a graphviz object
 
@@ -272,6 +276,7 @@ def built_graphviz( nodes, links, getlabel, getcolor ):
         - links is a list of links (source, target)
         - getlabel = f(node) is a function wich return a label for a node
         - getcolor = f(node) is similar, return a color
+        - secondary_links is a list of link which will have lower weight
     """
     def parsedoi( doi ): return doi.replace(':', '') # problem with graphviz?
 
@@ -279,13 +284,41 @@ def built_graphviz( nodes, links, getlabel, getcolor ):
     # see https://graphviz.gitlab.io/_pages/doc/info/colors.html
 
     DG = Digraph(comment='hello', format='svg', engine='dot',
-                 graph_attr={'size':'10' })#})'root':doi} )
-    DG.graph_attr['rankdir'] = 'LR'
+                 graph_attr={'size':'8', 'nodesep':'.16', 'rankdir':'LR' })
 
     for doi in nodes:
         DG.node(parsedoi(doi), color=getcolor(doi), style='filled', label=getlabel(doi))
 
     for source, target in links:
-        DG.edge(parsedoi(source), parsedoi(target))  
+        DG.edge(parsedoi(source), parsedoi(target), weight="5", style="solid", penwidth="1.4")  
 
+    # http://www.graphviz.org/doc/info/attrs.html#d:weight
+    for source, target in secondary_links:
+        DG.edge(parsedoi(source), parsedoi(target), weight="1", color='lightcyan3', penwidth=".7")
+        #, arrowtail='dot') 
+        
     return DG
+
+
+
+import networkx as nx
+
+def filter_double_links( links ):
+    """ 'knowledge' filtering
+        remove link if a longer path exist
+    """
+
+    G = nx.DiGraph()
+    for source, target in links:
+        G.add_edge(source, target) 
+
+    remaining_links = []
+    for source, target in links:
+
+        for path in nx.all_simple_paths( G, source, target ):
+            if len(path)>2:
+                break
+        else:
+            remaining_links.append( (source, target)  )
+
+    return remaining_links
