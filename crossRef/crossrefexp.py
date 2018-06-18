@@ -100,7 +100,6 @@ class MetaDataStore(dict):
         
         for i, doi in enumerate( lastgennodes ):
             print('{}/{} fetch'.format( i, len(lastgennodes), doi ), end='\r')
-            time.sleep(.7) # not here...
             metadata = self.get( doi )
             doi_list = metadata.refs_doi()
             
