@@ -26,10 +26,16 @@ class MetaDataStore(dict):
 
         
     def get(self, doi):
+        """ Get the metadata for the give doi
+            look first in the cache
+            if not present, perform the query
+        """
         if doi in self:
-            return self['doi']
+            metadata = self[doi]
         else:
-            return self._query(doi)
+            metadata = self._query(doi)
+        
+        return MetaData( metadata )
         
         
     def _query(self, doi):
@@ -44,11 +50,11 @@ class MetaDataStore(dict):
         response = requests.get(parsed_url, params=params)
         
         if not response.ok:
-            print('`%s` not found. Empty metadata created. ' % doi)
+            print('`%s` not found. Empty metadata created. ' % doi, end='\r')
             #raise NameError('query error: %s' % response.url )
             metadata = {'DOI': doi}
         else:
-            print( 'metadata retrieved from Crossref in %.3f s.' % response.elapsed.total_seconds() )
+            print( '{} metadata retrieved from Crossref in {:3f} s.'.format(doi, response.elapsed.total_seconds()), end='\r' )
             response = response.json()
             metadata = response['message']
             
@@ -58,17 +64,9 @@ class MetaDataStore(dict):
         os.makedirs(os.path.dirname(self.cachelocation), exist_ok=True)
         with open(self.cachelocation, 'wb') as f:
             pickle.dump(self, f)
-
-            
-        return MetaData( metadata )
-        
-        
-    def __getitem__(self, key):
-        """ Wrap the returned value in a MetaData object
-        """
-        value = dict.__getitem__(self, key)
-        return  MetaData( value )
     
+        return self[doi]
+            
     
     def reset(self):
         """ Empty the cache and delete the cache file
@@ -84,52 +82,38 @@ class MetaDataStore(dict):
         else:
             print('canceled')
 
-            
-def initMetadataStore(cachelocation = 'data/cachefile.pickle'):
-    
-    mailadress = 'xdze2.me@gmail.com'
-    cache = {}
 
-    try:
-        with open(cachelocation, 'rb') as f:
-            cache.update( pickle.load(f) )
-        print( len(cache), 'metadata loaded from `%s`' % cachelocation )
-    except FileNotFoundError:
-        print( '`%s` not found. A new file will be created.' % cachelocation  )
-    
-    def get_metadata(doi):
-        """ Perform the query on Crossref if not in cache
-            update the cache and save to the pickle file
-            return a MetaData object
+    def grow( self, graph, N ):
+        """ Expand the graph N generations
+            by including all the papers cited by the last genreration
         """
-        if doi in cache:
-            return cache[doi]
-        else:
-            url = 'https://api.crossref.org/works/'
-            params = { 'mailto':mailadress }
-            parsed_url = url + urllib.parse.quote_plus( doi )
-
-            response = requests.get(parsed_url, params=params)
-
-            if not response.ok:
-                print('`%s` not found. Empty metadata created. ' % doi)
-                metadata = {'DOI': doi}
-            else:
-                print( 'metadata retrieved from Crossref in %.3f s.' % response.elapsed.total_seconds() )
-                response = response.json()
-                metadata = response['message']
-
-            cache[doi] = MetaData( metadata )
-
-            # save to file, create if not exist
-            os.makedirs(os.path.dirname(cachelocation), exist_ok=True)
-            with open(cachelocation, 'wb') as f:
-                pickle.dump(cache, f)
-
-            return cache[doi]
+        for k in range(N):
+            self._grow_one_gen(graph)
         
-    return get_metadata
+    
+    def _grow_one_gen(self, graph):
+        """ Expand the given graph one generation
+            by including all the papers cited by the last genreration
+        """
+        lastgen = graph.last_gen()
+        lastgennodes = [ doi for doi, node in graph.items() if node['gen']==lastgen ]
         
+        for i, doi in enumerate( lastgennodes ):
+            print('{}/{} fetch'.format( i, len(lastgennodes), doi ), end='\r')
+            time.sleep(.7) # not here...
+            metadata = self.get( doi )
+            doi_list = metadata.refs_doi()
+            
+            graph[doi]['refs'] = doi_list
+            
+            for ref_doi in doi_list:
+                if ref_doi not in graph:
+                    graph[ref_doi] = {'gen':lastgen+1, 'citedBy':[doi] }
+                else:
+                    graph[ref_doi]['citedBy'].append( doi )
+                
+        print('- done -' + str(len(graph)) + ' '*10 )
+
 
 class MetaData(dict):
     """ Class based on a dict representing the metadata
@@ -163,7 +147,7 @@ class MetaData(dict):
         return label
     
     
-    def print_node_info(self):
+    def printinfo(self):
         """ print nicely formated metadata
         """
         metadata = self
@@ -198,55 +182,11 @@ class ReferenceGraph(dict):
         starting from one article 
     """
     
-    def __init__(self, doi, cachelocation = 'data/cachefile.pickle'):
+    def __init__(self, doi):
         """ Init the graph with the DOI of root article
         """
         self[doi] = { 'gen':0, 'citedBy':[] }
 
-        # cache:
-        self.cachelocation = cachelocation
-        self.mailadress = 'xdze2.me@gmail.com'
-        self.cache = {}
-    
-        try:
-            with open(self.cachelocation, 'rb') as f:
-                self.cache.update( pickle.load(f) )
-            print( len(self.cache), 'metadata loaded from `%s`' % self.cachelocation )
-        except FileNotFoundError:
-            print( '`%s` not found. A new file will be created.' % self.cachelocation  )
-            
-    
-    def get_metadata(self, doi):
-        """ Perform the query on Crossref if not in cache
-            update the cache and save to the pickle file
-            return a MetaData object
-        """
-        if doi in self.cache:
-            return self.cache[doi]
-        else:
-            url = 'https://api.crossref.org/works/'
-            params = { 'mailto':self.mailadress }
-            parsed_url = url + urllib.parse.quote_plus( doi )
-
-            response = requests.get(parsed_url, params=params)
-
-            if not response.ok:
-                print('`%s` not found. Empty metadata created. ' % doi)
-                metadata = {'DOI': doi}
-            else:
-                print( 'metadata retrieved from Crossref in %.3f s.' % response.elapsed.total_seconds() )
-                response = response.json()
-                metadata = response['message']
-
-            self.cache[doi] = MetaData( metadata )
-
-            # save to file, create if not exist
-            os.makedirs(os.path.dirname(self.cachelocation), exist_ok=True)
-            with open(self.cachelocation, 'wb') as f:
-                pickle.dump(self.cache, f)
-
-            return self.cache[doi]
-    
     
     def grow( self, N, get_metadata ):
         """ Expand the graph N generations
