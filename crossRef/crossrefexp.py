@@ -4,9 +4,10 @@ import pickle
 import time
 import os
 
-# useless
+
 class MetaDataStore(dict):
-    """ Store and get the metadata from Crossref
+    """ Store for the metadata 
+        and interface to the Crossref API
     """
     
     def __init__(self, cachelocation = 'data/cachefile.pickle'):
@@ -24,7 +25,33 @@ class MetaDataStore(dict):
         except FileNotFoundError:
             print( '`%s` not found. A new file will be created.' % cachelocation  )
 
+            
+    def import_pickle(path):
+        """ Import the metadata stored in the `path` pickle file 
+        """
+        try:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+                self.update( data )
+                
+            print( len(data), 'metadata loaded from `%s`' % path )
         
+        except FileNotFoundError:
+            print( '`%s` not found.' % path  )  
+    
+    
+    def save_pickle(path):
+        """ if path dont exist: save
+            else: ask confirm overwrite
+        """
+        pass    
+    # to do: separate query and get
+    # import(pickle) // allow multiple file... still 
+    # save(pickle)
+    # check_for_missing -> list of doi  with count 
+    # ask( doi | list of doi )  - perform the query
+    # getlabel(doi) 
+    
     def get(self, doi):
         """ Get the metadata for the give doi
             look first in the cache
@@ -83,14 +110,6 @@ class MetaDataStore(dict):
         else:
             print('canceled')
 
-
-    def grow( self, graph, N ):
-        """ Expand the graph N generations
-            by including all the papers cited by the last genreration
-        """
-        for k in range(N):
-            self._grow_one_gen(graph)
-        
     
     def _grow_one_gen(self, graph):
         """ Expand the given graph one generation
@@ -116,10 +135,20 @@ class MetaDataStore(dict):
         print( '{} nodes in the graph. The last generation number is {}.'.format(len(graph), graph.last_gen()) )
 
 
+    def build_a_refgraph( self, doi, gen=2 ):
+        """ Build a reference graph sarting from the `doi`
+            for `gen` generations
+        """
+        gr = ReferenceGraph( doi )
+        for k in range( gen ):
+            self._grow_one_gen( gr )
+        
+        return gr
+        
         
         
 class MetaData(dict):
-    """ Class based on a dict representing the metadata
+    """ Class representing the metadata information
     """
     
     def __init__(self, metadata):
@@ -134,7 +163,7 @@ class MetaData(dict):
         
         return list( referencesWithDoi )
     
-    
+    # not used?
     def label(self):
         """ Label for the article as AuthorYEAR
             return part of the hash is no metadata is found
@@ -181,8 +210,14 @@ class MetaData(dict):
 # --- reference graph ---
 
 class ReferenceGraph(dict):
-    """ Object to explore the reference graph
+    """ reference graph Object
         starting from one article 
+        
+        Each node include:
+            - its generation number
+            - the citedBy list
+            
+        The growth operation is performed by the Store
     """
     
     def __init__(self, doi):
@@ -190,40 +225,7 @@ class ReferenceGraph(dict):
         """
         self[doi] = { 'gen':0, 'citedBy':[] }
 
-    
-    def grow( self, N, get_metadata ):
-        """ Expand the graph N generations
-            by including all the papers cited by the last genreration
-        """
-        for k in range(N):
-            self._grow_one_gen(get_metadata)
         
-    
-    def _grow_one_gen(self, get_metadata):
-        """ Expand the graph one generation
-            by including all the papers cited by the last genreration
-        """
-        lastgen = self.last_gen()
-        lastgennodes = [ doi for doi, node in self.items() if node['gen']==lastgen ]
-        
-        for i, doi in enumerate( lastgennodes ):
-            print('{}/{} fetch %s'.format( i, len(lastgennodes), doi ), end='\r')
-            time.sleep(.7) # not here...
-            metadata = get_metadata( doi )
-            doi_list = metadata.refs_doi()
-            
-            self[doi]['refs'] = doi_list
-            
-            for ref_doi in doi_list:
-                if ref_doi not in self:
-                    self[ref_doi] = {'gen':lastgen+1, 'citedBy':[doi] }
-                else:
-                    self[ref_doi]['citedBy'].append( doi )
-                
-        print('- done -' + ' '*10 )
-        self.len = len( self )
-                   
-            
     def last_gen(self):
         """ Get the number of the last generation
         """
