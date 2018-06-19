@@ -7,13 +7,10 @@ name = "pypi"
 
 [packages]
 jupyter = "*"
-scipy = "*"
-networkx = "*"
-bibtexparser = "*"
-jupyterlab = "*"
-beakerx = "*"
-matplotlib = "*"
+networks = "*"
 requests = "*"
+graphviz = "*"
+networkx = "*"
 
 [requires]
 python_version = "3.5"
