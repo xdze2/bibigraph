@@ -16,17 +16,13 @@ class MetaDataStore(dict):
         self.cachelocation = cachelocation
         self.mailadress = 'xdze2.me@gmail.com'
         
-        try:
-            with open(cachelocation, 'rb') as f:
-                self.update( pickle.load(f) )
-                
-            print( len(self), 'metadata loaded from `%s`' % cachelocation )
-        
-        except FileNotFoundError:
-            print( '`%s` not found. A new file will be created.' % cachelocation  )
-
+        if os.path.isfile(self.cachelocation):
+            self.import_pickle( self.cachelocation )
+        else:
+            print('default pickle location set to %s'%self.cachelocation)
             
-    def import_pickle(path):
+            
+    def import_pickle(self, path):
         """ Import the metadata stored in the `path` pickle file 
         """
         try:
@@ -40,32 +36,58 @@ class MetaDataStore(dict):
             print( '`%s` not found.' % path  )  
     
     
-    def save_pickle(path):
-        """ if path dont exist: save
-            else: ask confirm overwrite
+    def save(self, path=None):
+        """ Save metadata to a pickle file
+            if no path specified, save to the default path
         """
-        pass    
-    # to do: separate query and get
-    # import(pickle) // allow multiple file... still 
-    # save(pickle)
+        if path==None:
+            path = self.cachelocation
+
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
+        
+        print( '%s saved.'%path ) 
+        
+   
     # check_for_missing -> list of doi  with count 
-    # ask( doi | list of doi )  - perform the query
     # getlabel(doi) 
     
     def get(self, doi):
-        """ Get the metadata for the give doi
+        """ Return the metadata for the give doi
+            look first in the cache
+            if not present, return an empty MetaData object
+            
+            note: store[key] return a dict
+        """
+        if doi in self:
+            return MetaData( self[doi] )
+        else:
+            return MetaData( {'DOI':doi} )
+
+
+    def query(self, doi_list):
+        """ Get the metadata for the given list of doi
             look first in the cache
             if not present, perform the query
         """
-        if doi in self:
-            metadata = self[doi]
-        else:
-            metadata = self._query(doi)
+        if not doi_list:
+            return
         
-        return MetaData( metadata )
+        if isinstance(doi_list, str):
+            doi_list = [ doi_list ]
+            
+        for k, doi in enumerate( doi_list ):
+            print('{:3d}/{}: '.format( k+1, len(doi_list) ), end='')
+            if doi not in self:
+                self[doi] = self._query_crossref(doi)
+            else:
+                print('%s already present.'%doi)
+                
+        self.save()        
         
         
-    def _query(self, doi):
+    def _query_crossref(self, doi):
         """ Perform the query on Crossref if missing
             update the cache and save to the pickle file
         """
@@ -79,8 +101,8 @@ class MetaDataStore(dict):
         
         if not response.ok:
             print('`%s` not found. Empty metadata created. ' % doi, end='\n')
-            #raise NameError('query error: %s' % response.url )
-            metadata = {'DOI': doi}
+            metadata = { 'DOI': doi }
+            # to prevent multiple useless query
         else:
             print( 'metadata for {} retrieved from Crossref in {:3f} s.'.format(doi, response.elapsed.total_seconds()), end='\n' )
             response = response.json()
@@ -88,12 +110,7 @@ class MetaDataStore(dict):
             
         self[doi] = metadata
         
-        # save to file, create if not exist
-        os.makedirs(os.path.dirname(self.cachelocation), exist_ok=True)
-        with open(self.cachelocation, 'wb') as f:
-            pickle.dump(self, f)
-    
-        return self[doi]
+        return metadata
             
     
     def reset(self):
@@ -118,8 +135,10 @@ class MetaDataStore(dict):
         lastgen = graph.last_gen()
         lastgennodes = [ doi for doi, node in graph.items() if node['gen']==lastgen ]
         
+        missing = [ doi for doi in lastgennodes if doi not in self]
+        self.query(missing)
+        
         for i, doi in enumerate( lastgennodes ):
-            print('{:3d}/{}: '.format( i, len(lastgennodes), doi ), end='')
             metadata = self.get( doi )
             doi_list = metadata.refs_doi()
             
@@ -131,12 +150,11 @@ class MetaDataStore(dict):
                 else:
                     graph[ref_doi]['citedBy'].append( doi )
                 
-        print('- done -' + ' '*12 )
-        print( '{} nodes in the graph. The last generation number is {}.'.format(len(graph), graph.last_gen()) )
+        print( 'growth achieved - {} nodes in the graph. The last generation number is {}.'.format(len(graph), graph.last_gen()) )
 
 
     def build_a_refgraph( self, doi, gen=2 ):
-        """ Build a reference graph sarting from the `doi`
+        """ Build a reference graph starting from the `doi`
             for `gen` generations
         """
         gr = ReferenceGraph( doi )
@@ -144,6 +162,42 @@ class MetaDataStore(dict):
             self._grow_one_gen( gr )
         
         return gr
+        
+        
+    def get_refgraphviz(self, doi, gen=2, top=3, save=True ):
+        """ Build the reference graph for `gen` generations, starting at `doi`
+            keep only the upward graph from the `top`-cited ref.
+            return a Graphviz object (dot layout)
+        """
+        gr = self.build_a_refgraph( doi, gen=gen )
+
+        # Build the upward graph starting from the top-N cited articles
+        nodes, links = gr.upward_graph( top )
+
+        # Query for the top-cited nodes of the last generation:
+        missing = [doi for doi in nodes if doi not in self]
+        self.query(missing)
+
+        # 'Knowledge' filtering:
+        remaining_links = filter_double_links( links )
+        no_weight_links = [ link for link in links if link not in remaining_links ]
+
+        def getlabel(doi): return self.get(doi).label()
+
+        color_list = ['red', 'gold1', 'cyan3', 'darkorchid2', 'chartreuse2']
+        def getcolor(doi): return color_list[ gr[doi]['gen'] ]
+
+        graph_vizu = built_graphviz( nodes, remaining_links,
+                                     getlabel, getcolor, secondary_links=no_weight_links )
+
+        if save:
+            subdir = 'graphs/'
+            filename = '{}_gen{}_top{}'.format(getlabel(doi), gen, top)
+            # os.makedirs(os.path.dirname(filename), exist_ok=True)
+            fn = graph_vizu.render( filename=filename, cleanup=True, directory=subdir )
+            print('%s  saved'%fn)
+        
+        return graph_vizu
         
         
         
@@ -162,8 +216,8 @@ class MetaData(dict):
         referencesWithDoi = { ref['DOI'] for ref in references if 'DOI' in ref }
         
         return list( referencesWithDoi )
+
     
-    # not used?
     def label(self):
         """ Label for the article as AuthorYEAR
             return part of the hash is no metadata is found
@@ -308,6 +362,7 @@ import networkx as nx
 def filter_double_links( links ):
     """ 'knowledge' filtering
         remove link if a longer path exist
+        `links` is a list of link [(source, target), ... ]
     """
 
     G = nx.DiGraph()
