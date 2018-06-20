@@ -183,6 +183,9 @@ class MetaDataStore(dict):
             keep only the upward graph from the `top`-cited ref.
             return a Graphviz object (dot layout)
         """
+        if isinstance(doi_list, str):
+            doi_list = [ doi_list ]
+            
         gr = self.build_a_refgraph( doi_list, gen=gen )
 
         # Build the upward graph starting from the top-N cited articles
