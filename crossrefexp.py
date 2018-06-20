@@ -50,19 +50,36 @@ class MetaDataStore(dict):
         print( '%s saved.'%path ) 
         
         
-    def get(self, doi):
-        """ Return the metadata for the give doi
+    def get(self, doi_list):
+        """ Return the metadata for the given doi list (or str doi)
+            look first in the cache
+            if not present, return an empty MetaData object
+            
+            note: store[key] return a dict
+        """
+        if isinstance(doi_list, str):
+            return self._get_one(doi_list)
+          
+        metadata_list = []
+        for doi in doi_list:
+            metadata_list.append( self._get_one(doi) )
+                                
+        return metadata_list
+
+    
+    def _get_one(self, doi):
+        """ Return the metadata for the given doi list (or str doi)
             look first in the cache
             if not present, return an empty MetaData object
             
             note: store[key] return a dict
         """
         if doi in self:
-            return MetaData( self[doi] )
+            return MetaData( self[doi] ) 
         else:
-            return MetaData( {'DOI':doi} )
+            return MetaData({'DOI':doi})
 
-
+                                
     def query(self, doi_list):
         """ Get the metadata for the given list of doi
             look first in the cache
@@ -161,12 +178,12 @@ class MetaDataStore(dict):
         return gr
         
         
-    def get_refgraphviz(self, doi, gen=2, top=3, save=True ):
+    def get_refgraphviz(self, doi_list, gen=2, top=3, save=True ):
         """ Build the reference graph for `gen` generations, starting at `doi`
             keep only the upward graph from the `top`-cited ref.
             return a Graphviz object (dot layout)
         """
-        gr = self.build_a_refgraph( doi, gen=gen )
+        gr = self.build_a_refgraph( doi_list, gen=gen )
 
         # Build the upward graph starting from the top-N cited articles
         nodes, links = gr.upward_graph( top )
@@ -191,7 +208,8 @@ class MetaDataStore(dict):
 
         if save:
             subdir = 'graphs/'
-            filename = '{}_gen{}_top{}'.format(getlabel(doi), gen, top)
+            concatenate_keys = ''.join( getlabel(doi) for doi in doi_list ) 
+            filename = '{}_gen{}_top{}'.format(concatenate_keys, gen, top)
             # os.makedirs(os.path.dirname(filename), exist_ok=True)
             fn = graph_vizu.render( filename=filename, cleanup=True, directory=subdir )
             print('%s  saved'%fn)
@@ -206,7 +224,7 @@ class MetaDataStore(dict):
         """
         metadata = self.get(doi)
         try:
-            title = metadata['title'][0]
+            title = ''.join( metadata['title'] )
             title = (title[:75].strip() + '...') if len(title) > 75 else title
 
             year = metadata['issued']['date-parts'][0][0]
@@ -309,10 +327,14 @@ class ReferenceGraph(dict):
         The growth operation is performed by the Store
     """
     
-    def __init__(self, doi):
+    def __init__(self, doi_list):
         """ Init the graph with the DOI of root article
         """
-        self[doi] = { 'gen':0, 'citedBy':[] }
+        if isinstance(doi_list, str):
+            doi_list = [ doi_list ]
+            
+        for doi in doi_list:
+            self[doi] = { 'gen':0, 'citedBy':[] }
 
         
     def last_gen(self):
