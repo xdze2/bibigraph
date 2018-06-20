@@ -49,10 +49,7 @@ class MetaDataStore(dict):
         
         print( '%s saved.'%path ) 
         
-   
-    # check_for_missing -> list of doi  with count 
-    # getlabel(doi) 
-    
+        
     def get(self, doi):
         """ Return the metadata for the give doi
             look first in the cache
@@ -187,8 +184,10 @@ class MetaDataStore(dict):
         color_list = ['red', 'gold1', 'cyan3', 'darkorchid2', 'chartreuse2']
         def getcolor(doi): return color_list[ gr[doi]['gen'] ]
 
-        graph_vizu = built_graphviz( nodes, remaining_links,
-                                     getlabel, getcolor, secondary_links=no_weight_links )
+        graph_vizu = built_graphviz(nodes, remaining_links,
+                                    getlabel, getcolor,
+                                    gettooltip=self.get_info,
+                                    secondary_links=no_weight_links )
 
         if save:
             subdir = 'graphs/'
@@ -199,7 +198,43 @@ class MetaDataStore(dict):
         
         return graph_vizu
         
-        
+
+    def get_info(self, doi):
+        """ Return a nicely formated text 
+            giving the metadata for the `doi`
+            used for the tooltip
+        """
+        metadata = self.get(doi)
+        try:
+            title = metadata['title'][0]
+            title = (title[:75].strip() + '...') if len(title) > 75 else title
+
+            year = metadata['issued']['date-parts'][0][0]
+
+            authors = ', '.join( [ ' '.join((auth['given'], auth['family']))
+                                     for auth in metadata['author'] ] )
+
+            journal = metadata.get('container-title', '')[0]
+
+            refcount = metadata['reference-count']
+            refdoicount = len(metadata.refs_doi())
+
+            info = """\
+            {title}
+            ({year}) {journal}
+            {authors}
+            {refcount} references - {refdoicount} with doi
+            """.format(year=year, title=title, authors=authors,
+                       journal=journal, refcount=refcount, refdoicount=refdoicount)
+
+            info = info.replace('  ', '')
+
+        except KeyError:
+            info = '[%s] no meta data :(' % metadata['DOI']
+
+        return info
+
+
         
 class MetaData(dict):
     """ Class representing the metadata information
@@ -324,7 +359,8 @@ class ReferenceGraph(dict):
 
 from graphviz import Digraph
 
-def built_graphviz( nodes, links, getlabel, getcolor, secondary_links=[] ):
+def built_graphviz(nodes, links, getlabel, getcolor, 
+                   gettooltip=lambda x:None, secondary_links=[] ):
     """ Use Graphviz to draw the graph
         return a graphviz object
 
@@ -343,7 +379,8 @@ def built_graphviz( nodes, links, getlabel, getcolor, secondary_links=[] ):
                  graph_attr={'size':'8', 'nodesep':'.16', 'rankdir':'LR' })
 
     for doi in nodes:
-        DG.node(parsedoi(doi), color=getcolor(doi), style='filled', label=getlabel(doi))
+        DG.node(parsedoi(doi), color=getcolor(doi), style='filled',
+                label=getlabel(doi), tooltip=gettooltip(doi))
 
     for source, target in links:
         DG.edge(parsedoi(source), parsedoi(target), weight="5", style="solid", penwidth="1.4")  
