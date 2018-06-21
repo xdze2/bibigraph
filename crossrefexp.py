@@ -178,7 +178,7 @@ class MetaDataStore(dict):
         return gr
         
         
-    def get_refgraphviz(self, doi_list, gen=2, top=3, save=True ):
+    def get_refgraphviz(self, doi_list, gen=2, top=3, save=True, draw_secondary_links=True ):
         """ Build the reference graph for `gen` generations, starting at `doi`
             keep only the upward graph from the `top`-cited ref.
             return a Graphviz object (dot layout)
@@ -186,9 +186,8 @@ class MetaDataStore(dict):
         if isinstance(doi_list, str):
             doi_list = [ doi_list ]
             
-        gr = self.build_a_refgraph( doi_list, gen=gen )
-
         # Build the upward graph starting from the top-N cited articles
+        gr = self.build_a_refgraph( doi_list, gen=gen )
         nodes, links = gr.upward_graph( top )
 
         # Query for the top-cited nodes of the last generation:
@@ -198,7 +197,13 @@ class MetaDataStore(dict):
         # 'Knowledge' filtering:
         remaining_links = filter_double_links( links )
         no_weight_links = [ link for link in links if link not in remaining_links ]
-
+        no_secondary_tag = ''
+        
+        if not draw_secondary_links:
+            no_weight_links = []
+            no_secondary_tag = '_noSecondaryLink'
+            
+        # Draw:    
         def getlabel(doi): return self.get(doi).label()
 
         color_list = ['red', 'gold1', 'cyan3', 'darkorchid2', 'chartreuse2']
@@ -208,11 +213,11 @@ class MetaDataStore(dict):
                                     getlabel, getcolor,
                                     gettooltip=self.get_info,
                                     secondary_links=no_weight_links )
-
+        # Save the svg file:
         if save:
             subdir = 'graphs/'
             concatenate_keys = ''.join( getlabel(doi) for doi in doi_list ) 
-            filename = '{}_gen{}_top{}'.format(concatenate_keys, gen, top)
+            filename = '{}_gen{}_top{}{}'.format(concatenate_keys, gen, top, no_secondary_tag)
             # os.makedirs(os.path.dirname(filename), exist_ok=True)
             fn = graph_vizu.render( filename=filename, cleanup=True, directory=subdir )
             print('%s  saved'%fn)
