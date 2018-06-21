@@ -3,7 +3,7 @@ import urllib.parse
 import pickle
 import time
 import os
-
+import re
 
 class MetaDataStore(dict):
     """ Store for the metadata
@@ -72,6 +72,7 @@ class MetaDataStore(dict):
 
             note: store[key] return a dict
         """
+        doi = doi.lower()
         if doi in self:
             return MetaData(self[doi])
         else:
@@ -88,54 +89,9 @@ class MetaDataStore(dict):
         if isinstance(doi_list, str):
             doi_list = [doi_list]
 
-        for k, doi in enumerate(doi_list):
-            print('{:3d}/{}: '.format(k+1, len(doi_list)), end='')
-            if doi not in self:
-                self[doi] = self._query_crossref(doi)
-            else:
-                print('%s already present.' % doi)
-
+        metadata = query_crossref(doi_list, email = self.mailadress)
+        self.update( metadata )
         self.save()
-
-    def _query_crossref(self, doi):
-        """ Perform the query on Crossref if missing
-            update the cache and save to the pickle file
-        """
-        print('retrieving metadata for {} from Crossref...'.format(doi), end='\r')
-
-        url = 'https://api.crossref.org/works/'
-        params = {'mailto': self.mailadress}
-        parsed_url = url + urllib.parse.quote_plus(doi)
-
-        response = requests.get(parsed_url, params=params)
-
-        if not response.ok:
-            print('`%s` not found. Empty metadata created. ' % doi, end='\n')
-            metadata = {'DOI': doi}
-            # to prevent multiple useless query
-        else:
-            print('metadata for {} retrieved from Crossref in {:3f} s.'
-                  .format(doi, response.elapsed.total_seconds()), end='\n')
-            response = response.json()
-            metadata = response['message']
-
-        self[doi] = metadata
-
-        return metadata
-
-    def reset(self):
-        """ Empty the cache and delete the cache file.
-        """
-        cachesize = os.path.getsize(self.cachelocation) / 1024**2
-        message = 'Delete `{}` {:.2f} Mo, \n Are you sure? [type yes] '
-        confirm = input(message.format(self.cachelocation, cachesize ))
-
-        if confirm == 'yes':
-            self.clear()
-            os.remove(self.cachelocation)
-            print('file removed')
-        else:
-            print('canceled')
 
     def _grow_one_gen(self, graph):
         """ Expand the given graph one generation
@@ -450,3 +406,58 @@ def filter_double_links( links ):
             remaining_links.append( (source, target)  )
 
     return remaining_links
+
+
+
+def query_crossref(doi_list, email = ''):
+    """ Retrieve metadata from the Crossref API.
+        Group the doi to reduce the number of queries.
+    """
+    max_query_size = 92
+    
+    # Formatting and filtering the doi_list
+    doi_pattern = re.compile(r'^10.\d{4,9}\/[-._;()\/:A-Z0-9]+$', re.IGNORECASE)
+
+    len_before_filtering = len(doi_list)
+    doi_list = [ doi for doi in doi_list if re.match(doi_pattern, doi) ]
+    if len(doi_list) != len_before_filtering:
+        print('warning: some doi not well formatted, ignored')
+
+    doi_list = list(set( doi_list ))  # filter doublon
+    doi_list = [doi.lower() for doi in doi_list]
+    
+    sliced_doi_list = [doi_list[i:i + max_query_size]
+                       for i in range(0, len(doi_list), max_query_size)]
+    
+    returned_metadata = {}
+    for chunck_doi_list in sliced_doi_list:
+
+        concatenated_doi_list = ','.join( 'doi:%s' % doi for doi in chunck_doi_list )
+        url = 'http://api.crossref.org/works'
+        params = {'mailto': email,
+                  'filter': concatenated_doi_list,
+                  'rows': len(doi_list)}
+
+        response = requests.get(url, params=params)
+
+        print('Query performed in {:3f} s. ({} doi)'
+              .format(response.elapsed.total_seconds(), len(chunck_doi_list)), end='\n')
+
+        if not response.ok:
+            print('query error %s' % response)
+        else:
+            response = response.json()
+            len_answer = response['message']['total-results']
+            items = response['message']['items']
+
+            returned_metadata.update( {meta['DOI'].lower():meta for meta in items} )
+
+    print( '{} metadata returned for {} asked'.format(len(returned_metadata), len(doi_list)) )
+
+    missing = set(doi_list) - returned_metadata.keys()
+    if missing:
+        print( 'missing doi (%i):' % len(missing), ' '.join(missing) )
+        for doi in missing:
+            returned_metadata[doi] = {'DOI':doi, 'status':'missing'}
+
+    return returned_metadata
