@@ -87,6 +87,7 @@ class MetaDataStore(dict):
 
         if isinstance(doi_list, str): doi_list = [doi_list]
 
+        print('Requesing {} metadata:'.format(len(doi_list)))
         metadata = query_crossref(doi_list,
                                   email = self.mailadress)
         self.update( metadata )
@@ -444,7 +445,7 @@ def query_crossref(doi_list, email = ''):
         url = 'http://api.crossref.org/works'
         params = {'mailto': email,
                   'filter': concatenated_doi_list,
-                  'rows': len(doi_list)}
+                  'rows': len(chunck_doi_list)}
 
         response = requests.get(url, params=params)
 
@@ -452,7 +453,7 @@ def query_crossref(doi_list, email = ''):
               .format(response.elapsed.total_seconds(), len(chunck_doi_list)), end='\n')
 
         if not response.ok:
-            print('query error %s' % response)
+            print('query error: %s' % response.content)
         else:
             response = response.json()
             len_answer = response['message']['total-results']
