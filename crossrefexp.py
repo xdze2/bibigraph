@@ -64,7 +64,6 @@ class MetaDataStore(dict):
 
         return metadata_list
 
-
     def _get_one(self, doi):
         """ Return the metadata for the given doi list (or str doi)
             look first in the cache
@@ -86,10 +85,10 @@ class MetaDataStore(dict):
         if not doi_list:
             return
 
-        if isinstance(doi_list, str):
-            doi_list = [doi_list]
+        if isinstance(doi_list, str): doi_list = [doi_list]
 
-        metadata = query_crossref(doi_list, email = self.mailadress)
+        metadata = query_crossref(doi_list,
+                                  email = self.mailadress)
         self.update( metadata )
         self.save()
 
@@ -106,11 +105,13 @@ class MetaDataStore(dict):
 
         for i, doi in enumerate(lastgennodes):
             metadata = self.get(doi)
-            doi_list = metadata.refs_doi()
+            references = metadata.get('reference', [])
+            references_with_doi = {ref['DOI'].lower() for ref in references
+                                   if 'DOI' in ref}
 
-            graph[doi]['refs'] = doi_list
+            graph[doi]['refs'] = references_with_doi
 
-            for ref_doi in doi_list:
+            for ref_doi in references_with_doi:
                 if ref_doi not in graph:
                     graph[ref_doi] = {'gen': lastgen+1, 'citedBy': [doi]}
                 else:
@@ -119,9 +120,11 @@ class MetaDataStore(dict):
         print('growth achieved - {} nodes in the graph. The last generation number is {}.'
               .format(len(graph), graph.last_gen()))
 
-    def build_a_refgraph(self, doi, gen=2):
-        """ Build a reference graph starting from the `doi` for `gen` generations."""
-        gr = ReferenceGraph(doi)
+    def build_a_refgraph(self, doi_list, gen=2):
+        """ Build a reference graph starting from the given doi_list`
+            and for `gen` generations.
+        """
+        gr = ReferenceGraph(doi_list)
         for k in range(gen):
             self._grow_one_gen(gr)
 
@@ -146,6 +149,8 @@ class MetaDataStore(dict):
                 if False do not draw the secondary links
                 (a link is considered secondary if a longer path exist)
         """
+        print('assembling the graph...', end='\r')
+        
         if isinstance(doi_list, str):
             doi_list = [doi_list]
 
@@ -158,6 +163,7 @@ class MetaDataStore(dict):
         self.query(missing)
 
         # 'Knowledge' filtering:
+        print('filtering the edges...', end='\r')
         remaining_links = filter_double_links(links)
         no_weight_links = [link for link in links
                            if link not in remaining_links]
@@ -173,6 +179,7 @@ class MetaDataStore(dict):
         color_list = ['red', 'gold1', 'cyan3', 'darkorchid2', 'chartreuse2']
         def getcolor(doi): return color_list[ gr[doi]['gen'] ]
 
+        print('building the layout...', end='\r')
         graph_vizu = built_graphviz(nodes, remaining_links,
                                     getlabel, getcolor,
                                     gettooltip=self.get_info,
@@ -300,6 +307,7 @@ class ReferenceGraph(dict):
             doi_list = [doi_list]
 
         for doi in doi_list:
+            doi = doi.lower()
             self[doi] = {'gen': 0, 'citedBy': []}
 
 
