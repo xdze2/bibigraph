@@ -215,14 +215,17 @@ class MetaDataStore(dict):
             refcount = metadata['reference-count']
             refdoicount = len(metadata.refs_doi())
 
+            iscitedby_count = metadata.get("is-referenced-by-count", '-na-')
             info = """\
             {title}
             ({year}) {journal}
             {authors}
-            {refcount} references - {refdoicount} with doi
+            {refcount} references - {reflen} given and {refdoicount} with doi
+            {iscitedby_count} times cited.
             """.format(year=year, title=title, authors=authors,
                        journal=journal, refcount=refcount,
-                       refdoicount=refdoicount)
+                       refdoicount=refdoicount, reflen=len(metadata.get('reference', [])),
+                       iscitedby_count=iscitedby_count)
 
             info = info.replace('  ', '')
 
