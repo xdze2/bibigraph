@@ -3,7 +3,7 @@ import urllib.parse
 import pickle
 import time
 import os
-
+import re
 
 class MetaDataStore(dict):
     """ Store for the metadata
@@ -64,7 +64,6 @@ class MetaDataStore(dict):
 
         return metadata_list
 
-
     def _get_one(self, doi):
         """ Return the metadata for the given doi list (or str doi)
             look first in the cache
@@ -72,6 +71,7 @@ class MetaDataStore(dict):
 
             note: store[key] return a dict
         """
+        doi = doi.lower()
         if doi in self:
             return MetaData(self[doi])
         else:
@@ -85,57 +85,13 @@ class MetaDataStore(dict):
         if not doi_list:
             return
 
-        if isinstance(doi_list, str):
-            doi_list = [doi_list]
+        if isinstance(doi_list, str): doi_list = [doi_list]
 
-        for k, doi in enumerate(doi_list):
-            print('{:3d}/{}: '.format(k+1, len(doi_list)), end='')
-            if doi not in self:
-                self[doi] = self._query_crossref(doi)
-            else:
-                print('%s already present.' % doi)
-
+        print('Requesing {} metadata:'.format(len(doi_list)))
+        metadata = query_crossref(doi_list,
+                                  email = self.mailadress)
+        self.update( metadata )
         self.save()
-
-    def _query_crossref(self, doi):
-        """ Perform the query on Crossref if missing
-            update the cache and save to the pickle file
-        """
-        print('retrieving metadata for {} from Crossref...'.format(doi), end='\r')
-
-        url = 'https://api.crossref.org/works/'
-        params = {'mailto': self.mailadress}
-        parsed_url = url + urllib.parse.quote_plus(doi)
-
-        response = requests.get(parsed_url, params=params)
-
-        if not response.ok:
-            print('`%s` not found. Empty metadata created. ' % doi, end='\n')
-            metadata = {'DOI': doi}
-            # to prevent multiple useless query
-        else:
-            print('metadata for {} retrieved from Crossref in {:3f} s.'
-                  .format(doi, response.elapsed.total_seconds()), end='\n')
-            response = response.json()
-            metadata = response['message']
-
-        self[doi] = metadata
-
-        return metadata
-
-    def reset(self):
-        """ Empty the cache and delete the cache file.
-        """
-        cachesize = os.path.getsize(self.cachelocation) / 1024**2
-        message = 'Delete `{}` {:.2f} Mo, \n Are you sure? [type yes] '
-        confirm = input(message.format(self.cachelocation, cachesize ))
-
-        if confirm == 'yes':
-            self.clear()
-            os.remove(self.cachelocation)
-            print('file removed')
-        else:
-            print('canceled')
 
     def _grow_one_gen(self, graph):
         """ Expand the given graph one generation
@@ -150,11 +106,13 @@ class MetaDataStore(dict):
 
         for i, doi in enumerate(lastgennodes):
             metadata = self.get(doi)
-            doi_list = metadata.refs_doi()
+            references = metadata.get('reference', [])
+            references_with_doi = {ref['DOI'].lower() for ref in references
+                                   if 'DOI' in ref}
 
-            graph[doi]['refs'] = doi_list
+            graph[doi]['refs'] = references_with_doi
 
-            for ref_doi in doi_list:
+            for ref_doi in references_with_doi:
                 if ref_doi not in graph:
                     graph[ref_doi] = {'gen': lastgen+1, 'citedBy': [doi]}
                 else:
@@ -163,9 +121,11 @@ class MetaDataStore(dict):
         print('growth achieved - {} nodes in the graph. The last generation number is {}.'
               .format(len(graph), graph.last_gen()))
 
-    def build_a_refgraph(self, doi, gen=2):
-        """ Build a reference graph starting from the `doi` for `gen` generations."""
-        gr = ReferenceGraph(doi)
+    def build_a_refgraph(self, doi_list, gen=2):
+        """ Build a reference graph starting from the given doi_list`
+            and for `gen` generations.
+        """
+        gr = ReferenceGraph(doi_list)
         for k in range(gen):
             self._grow_one_gen(gr)
 
@@ -190,6 +150,8 @@ class MetaDataStore(dict):
                 if False do not draw the secondary links
                 (a link is considered secondary if a longer path exist)
         """
+        print('assembling the graph...', end='\r')
+        
         if isinstance(doi_list, str):
             doi_list = [doi_list]
 
@@ -202,6 +164,7 @@ class MetaDataStore(dict):
         self.query(missing)
 
         # 'Knowledge' filtering:
+        print('filtering the edges...', end='\r')
         remaining_links = filter_double_links(links)
         no_weight_links = [link for link in links
                            if link not in remaining_links]
@@ -217,6 +180,7 @@ class MetaDataStore(dict):
         color_list = ['red', 'gold1', 'cyan3', 'darkorchid2', 'chartreuse2']
         def getcolor(doi): return color_list[ gr[doi]['gen'] ]
 
+        print('building the layout...', end='\r')
         graph_vizu = built_graphviz(nodes, remaining_links,
                                     getlabel, getcolor,
                                     gettooltip=self.get_info,
@@ -251,14 +215,17 @@ class MetaDataStore(dict):
             refcount = metadata['reference-count']
             refdoicount = len(metadata.refs_doi())
 
+            iscitedby_count = metadata.get("is-referenced-by-count", '-na-')
             info = """\
             {title}
             ({year}) {journal}
             {authors}
-            {refcount} references - {refdoicount} with doi
+            {refcount} references - {reflen} given and {refdoicount} with doi
+            {iscitedby_count} times cited.
             """.format(year=year, title=title, authors=authors,
                        journal=journal, refcount=refcount,
-                       refdoicount=refdoicount)
+                       refdoicount=refdoicount, reflen=len(metadata.get('reference', [])),
+                       iscitedby_count=iscitedby_count)
 
             info = info.replace('  ', '')
 
@@ -344,6 +311,7 @@ class ReferenceGraph(dict):
             doi_list = [doi_list]
 
         for doi in doi_list:
+            doi = doi.lower()
             self[doi] = {'gen': 0, 'citedBy': []}
 
 
@@ -450,3 +418,58 @@ def filter_double_links( links ):
             remaining_links.append( (source, target)  )
 
     return remaining_links
+
+
+
+def query_crossref(doi_list, email = ''):
+    """ Retrieve metadata from the Crossref API.
+        Group the doi to reduce the number of queries.
+    """
+    max_query_size = 92
+    
+    # Formatting and filtering the doi_list
+    doi_pattern = re.compile(r'^10.\d{4,9}\/[-._;()\/:A-Z0-9]+$', re.IGNORECASE)
+
+    len_before_filtering = len(doi_list)
+    doi_list = [ doi for doi in doi_list if re.match(doi_pattern, doi) ]
+    if len(doi_list) != len_before_filtering:
+        print('warning: some doi not well formatted, ignored')
+
+    doi_list = list(set( doi_list ))  # filter doublon
+    doi_list = [doi.lower() for doi in doi_list]
+    
+    sliced_doi_list = [doi_list[i:i + max_query_size]
+                       for i in range(0, len(doi_list), max_query_size)]
+    
+    returned_metadata = {}
+    for chunck_doi_list in sliced_doi_list:
+
+        concatenated_doi_list = ','.join( 'doi:%s' % doi for doi in chunck_doi_list )
+        url = 'http://api.crossref.org/works'
+        params = {'mailto': email,
+                  'filter': concatenated_doi_list,
+                  'rows': len(chunck_doi_list)}
+
+        response = requests.get(url, params=params)
+
+        print('Query performed in {:3f} s. ({} doi)'
+              .format(response.elapsed.total_seconds(), len(chunck_doi_list)), end='\n')
+
+        if not response.ok:
+            print('query error: %s' % response.content)
+        else:
+            response = response.json()
+            len_answer = response['message']['total-results']
+            items = response['message']['items']
+
+            returned_metadata.update( {meta['DOI'].lower():meta for meta in items} )
+
+    print( '{} metadata returned for {} asked'.format(len(returned_metadata), len(doi_list)) )
+
+    missing = set(doi_list) - returned_metadata.keys()
+    if missing:
+        print( 'missing doi (%i):' % len(missing), ' '.join(missing) )
+        for doi in missing:
+            returned_metadata[doi] = {'DOI':doi, 'status':'missing'}
+
+    return returned_metadata
