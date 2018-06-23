@@ -131,19 +131,21 @@ class MetaDataStore(dict):
 
         return gr
 
-    def get_refgraphviz(self, doi_list, gen=2, top=3, save=True,
-                        draw_secondary_links=True):
+    def get_refgraphviz(self, doi_list, gen=2, top=3, starting_from=None,
+                        save=True, draw_secondary_links=True):
         """ Build the reference graph for `gen` generations, starting at the
             articles in `doi_list`. Then, keep only the upward graph generated
             from the `top`-cited references. Return a Graphviz object.
 
             Parameters
             ----------
-            doi_list : list of doi string or one doi string
-            gen : int, default 2
+            doi_list: list of doi string or one doi string
+            gen: int, default 2
                 number of generation
-            top : int, default 3
+            top: int, default 3, -1 for all
                 number of references to start from when generating the upward graph
+            starting_from: list of doi
+                then top is ignored
             save: bool, default True
                 if True save the graph in a svg file
             draw_secondary_links: default True
@@ -157,7 +159,7 @@ class MetaDataStore(dict):
 
         # Build the upward graph starting from the top-N cited articles
         gr = self.build_a_refgraph(doi_list, gen=gen)
-        nodes, links = gr.upward_graph(top)
+        nodes, links = gr.upward_graph(top, doi_list=starting_from)
 
         # Query for the top-cited nodes of the last generation:
         missing = [doi for doi in nodes if doi not in self]
@@ -189,7 +191,7 @@ class MetaDataStore(dict):
         # Save the svg file:
         if save:
             subdir = 'graphs/'
-            concatenate_keys = ''.join( getlabel(doi) for doi in doi_list )
+            concatenate_keys = ''.join( getlabel(doi) for doi in doi_list )[:20]
             filename = '{}_gen{}_top{}{}'.format(concatenate_keys, gen, top, no_secondary_tag)
             fn = graph_vizu.render(filename=filename, cleanup=True, directory=subdir)
             print('%s  saved'%fn)
@@ -279,7 +281,7 @@ class MetaData(dict):
                                     for auth in metadata['author']
                                     if auth['sequence'] == 'first'][0] )
 
-            journal = metadata.get('container-title', '')[0]
+            journal = metadata.get('container-title', [''])[0]
 
             info = '({year}) {title}\n'.format(year=year, title=title)
             info += '   ' + first_author + ' et al.'
@@ -329,11 +331,15 @@ class ReferenceGraph(dict):
         return sorted( citedBy_count, key=lambda x:x[1], reverse=True )
 
 
-    def upward_graph(self, N=4):
+    def upward_graph(self, N=4, doi_list=None):
         """ Build a new graph starting from the N-top cited article.
             Return the list of nodes, and the list of edges
         """
-        nodes_to_check = [ node for node, count in self.most_cited()[:N] ]
+        if doi_list:
+            nodes_to_check = doi_list
+        else:
+            nodes_to_check = [ node for node, count in self.most_cited()[:N] ]
+            
         nodes_to_draw, links_to_draw = [], []
         while nodes_to_check:
             doi = nodes_to_check.pop()
